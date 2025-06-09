@@ -1,0 +1,589 @@
+% -----------------------------------------------------------------------------------------------------------------------
+% Global error messages
+sort Error = struct 
+    ERR_WORKPIECE_DROPPED  % a workpiece is dropped somewhere in the system
+    | ERR_CELL_OVERLOADED  % two or more workpieces try to occupy one cell
+    | ERR_FATAL            % general fatal error
+;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Self-defined characters and strings
+sort Char = struct
+    a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p | q | r | s | t | u | v | w | x | y | z
+    | A | B | C | D | E | F | G | H | I | J | K | L | M | N | O | P | Q | R | S | T | U | V | W | X | Y | Z
+    | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 
+;
+
+sort String = List(Char);
+
+% Example usage
+map mCRL2: String;
+eqn mCRL2 = [m,C,R,L,_2];
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of the names of all entities
+sort ID = struct 
+    icbA | icbB | icbC | icbD | icbH | icbI | icbJ | icbL | icbM | icbP | icbQ | icbR | icbU | icbV 
+    | ocbA | ocbB | ocbD | ocbE | ocbG | ocbH | ocbI | ocbK | ocbL | ocbN | ocbO | ocbP | ocbT | ocbU | ocbV | ocbW
+    | iswE | iswF | iswG | iswK | iswN | iswO | iswS | iswT | iswW
+    | oswC | oswF | oswJ | oswM | oswR | oswS | oswQ | oswX 
+;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of all possible connections
+sort Connection = struct 
+    cn00  % special unused default/undefined connection
+    | cn01 | cn02 | cn03 | cn04 | cn05 | cn06 | cn07 | cn08 | cn09 | cn10 
+    | cn11 | cn12 | cn13 | cn14 | cn15 | cn16 | cn17 | cn18 | cn19 | cn20
+    | cn21 | cn22 | cn23 | cn24 | cn25 | cn26 | cn27 | cn28 | cn29 | cn30
+    | cn31 | cn32 | cn33 | cn34 | cn35 | cn36 | cn37 | cn38 | cn39 | cn40
+    | cn41 | cn42 | cn43 | cn44 | cn45 | cn46 | cn47 | cn48 | cn49 | cn50
+;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of the direction of movement
+sort Direction = struct FORWARD?isFW | BACKWARD?isBW;
+
+sort 
+    WorkstationId = struct W1 | W2 | W3 | W4;  % Define workstation IDs
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definitions for an Asset Administration Shell (AAS)
+sort AAS = struct
+    _AAS(
+        sm_id: SM_Identification,
+        sm_td: SM_TechnicalData,
+        sm_od: SM_OperationalData,
+        sm_cf: SM_Configuration
+    )?isDefinedAAS
+    | undefAAS?isUndefinedAAS
+;
+
+sort SM_Identification = struct _SM_Identification(
+    id: ID,
+    idType: IDType,
+    category: Category,
+    name: Name,
+    manufacturer: Manufacturer,
+    assetType: AssetType
+);
+
+sort SM_TechnicalData = struct _SM_TechnicalData(
+    modelNumber: ModelNumber,
+    serialNumber: SerialNumber,
+    type: TypeString,
+    manufacturer: Manufacturer,
+    capacity: Int  % max. number of workpieces that can be contained
+);
+
+sort SM_OperationalData = struct
+    _SM_OperationalData_ConveyorBelt(
+        status: Status,
+        direction: Direction  % current direction of the conveyor belt
+    )?isConveyorBelt
+    | _SM_OperationalData_Switch(
+        status: Status,
+        position: SwitchPosition  % current position of the Switch
+    )?isSwitch
+;
+
+sort SM_Configuration = struct
+    _SM_Configuration_ConveyorBelt(
+        front: Connection,  % interaction points, use cn00 for non-existing interaction point
+        back: Connection,
+        mid: Connection 
+    )?isConveyorBelt
+    | _SM_Configuration_Switch(
+        pos1: Connection,  % interactions points of the Switch, use cn00 for non-existing interaction point
+        pos2: Connection,
+        pos3: Connection
+    )?isSwitch
+;
+
+% Data types used in submodels
+sort IDType = struct INTERNAL_ID;  % currently restricted
+sort Category = struct RESOURCE | PRODUCT | SOFTWARE;  % list can be extended
+sort Name = String;  % general self-defined String
+sort Manufacturer = struct FESTO;  % list can be extended
+sort AssetType = struct CONVEYOR_BELT | SWITCH | WORKSTATION;  % list should be extended
+
+sort ModelNumber = String;
+sort SerialNumber = String;
+sort TypeString = AssetType;  % can be identical for now
+
+sort Status = struct ACTIVE | INACTIVE;
+
+% Access routines
+map 
+    id: AAS -> ID;
+    direction: AAS -> Direction;
+    setDirection: AAS # Direction -> AAS;
+    capacity: AAS -> Int;
+    position: AAS -> SwitchPosition;
+    setPosition: AAS # SwitchPosition -> AAS;
+    front: AAS -> Connection;
+    back: AAS -> Connection;
+    cbEntry: AAS -> Connection;
+    cbExit: AAS -> Connection;
+    pos1: AAS -> Connection;
+    pos2: AAS -> Connection;
+    pos3: AAS -> Connection;
+    switchCnx: AAS -> Connection;
+
+var
+    aas : AAS;
+    dir : Direction;
+    pos : SwitchPosition;
+
+eqn
+    id(aas) = id(sm_id(aas));
+    direction(aas) = direction(sm_od(aas));
+    setDirection(aas, dir) = _AAS(sm_id(aas), sm_td(aas), _SM_OperationalData_ConveyorBelt(status(sm_od(aas)), dir), sm_cf(aas));
+    capacity(aas) = capacity(sm_td(aas));
+    position(aas) = position(sm_od(aas));
+    setPosition(aas, pos) = _AAS(sm_id(aas), sm_td(aas), _SM_OperationalData_Switch(status(sm_od(aas)), pos), sm_cf(aas));
+    front(aas) = front(sm_cf(aas));
+    back(aas) = back(sm_cf(aas));
+    cbEntry(aas) = if(isFW(direction(aas)), front(sm_cf(aas)), back(sm_cf(aas)));
+    cbExit(aas) = if(isFW(direction(aas)), back(sm_cf(aas)), front(sm_cf(aas)));
+    pos1(aas) = pos1(sm_cf(aas));
+    pos2(aas) = pos2(sm_cf(aas));
+    pos3(aas) = pos3(sm_cf(aas));
+    switchCnx(aas) = if(position(aas) == pos1, pos1(aas), if(position(aas) == pos2, pos2(aas), pos3(aas)));  % the interaction point at the current position of the switch (is variable!)
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Map definitions for the AAS Map
+sort AASMap = K -> V;  % sorts K symbolizes a "generic" Key sort and V symbolizes a "generic" Value sort, that have to be instantiated later
+
+map
+    _AASMap: V -> AASMap;  % _Map symbolizes the Map constructor, the V element is used as default value to initialize undefined map entries
+
+var
+    k_: K;
+    v_: V;
+
+eqn
+    _AASMap(v_)(k_) = v_;  % initializes the map with the given default value (catch-all function)
+
+% Now fill in the actual sorts
+sort
+    K = ID;
+    V = AAS;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of all the AAS of the resources on the Festo shop floor
+map
+    aas': AASMap;
+
+eqn
+    aas' =
+        _AASMap(undefAAS)  % default unused configuration!
+            [icbA ->
+                _AAS(
+                    _SM_Identification(icbA, INTERNAL_ID, RESOURCE, [i,n,A], FESTO, CONVEYOR_BELT),
+                    _SM_TechnicalData([M,o,d,e,l,_1], [S,N,_0,_0,_1], CONVEYOR_BELT, FESTO, 3),
+                    _SM_OperationalData_ConveyorBelt(ACTIVE, FORWARD),
+                    _SM_Configuration_ConveyorBelt(cn01, cn02, cn00)
+                )
+            ]
+            [icbB ->
+                _AAS(
+                    _SM_Identification(icbB, INTERNAL_ID, RESOURCE, [i,n,B], FESTO, CONVEYOR_BELT),
+                    _SM_TechnicalData([M,o,d,e,l,_1], [S,N,_0,_0,_1], CONVEYOR_BELT, FESTO, 3),
+                    _SM_OperationalData_ConveyorBelt(ACTIVE, FORWARD),
+                    _SM_Configuration_ConveyorBelt(cn03, cn05, cn04)
+                )
+            ]
+            [icbC ->
+                _AAS(
+                    _SM_Identification(icbC, INTERNAL_ID, RESOURCE, [i,n,C], FESTO, CONVEYOR_BELT),
+                    _SM_TechnicalData([M,o,d,e,l,_1], [S,N,_0,_0,_1], CONVEYOR_BELT, FESTO, 3),
+                    _SM_OperationalData_ConveyorBelt(ACTIVE, BACKWARD),
+                    _SM_Configuration_ConveyorBelt(cn06, cn07, cn00)
+                )
+            ]
+            [icbD ->
+                _AAS(
+                    _SM_Identification(icbD, INTERNAL_ID, RESOURCE, [i,n,D], FESTO, CONVEYOR_BELT),
+                    _SM_TechnicalData([M,o,d,e,l,_1], [S,N,_0,_0,_1], CONVEYOR_BELT, FESTO, 3),
+                    _SM_OperationalData_ConveyorBelt(ACTIVE, FORWARD),
+                    _SM_Configuration_ConveyorBelt(cn08, cn09, cn00)
+                )
+            ]
+            [iswE ->
+                _AAS(
+                    _SM_Identification(iswE, INTERNAL_ID, RESOURCE, [i,n,E], FESTO, SWITCH),
+                    _SM_TechnicalData([M,o,d,e,l,_2], [S,N,_0,_1,_1], SWITCH, FESTO, 1),  % can contain one workpiece at max
+                    _SM_OperationalData_Switch(ACTIVE, pos1),
+                    _SM_Configuration_Switch(cn10, cn03, cn02) 
+                )
+            ]
+            [iswF ->
+                _AAS(
+                    _SM_Identification(iswF, INTERNAL_ID, RESOURCE, [i,n,F], FESTO, SWITCH),
+                    _SM_TechnicalData([M,o,d,e,l,_2], [S,N,_0,_1,_1], SWITCH, FESTO, 1),  % can contain one workpiece at max
+                    _SM_OperationalData_Switch(ACTIVE, pos1),
+                    _SM_Configuration_Switch(cn08, cn07, cn11) 
+                )
+            ]
+            % this table needs to be extended!!!
+    ;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of a workpiece
+sort WPId = struct wp1;  % Workpiece ID
+sort Colour = struct red;  % Workpiece colour
+sort Orientation = struct up;  % Workpiece orientation
+
+sort WorkPiece = struct _Workpiece(wpid: WPId, colour: Colour, orientation: Orientation);
+
+map
+    _wp1: WorkPiece;
+
+eqn
+    _wp1 = _Workpiece(wp1, red, up);
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of a cell
+sort Cell = struct _Cell(workpiece: WorkPiece)?hasWorkPiece | emptyCell?isEmpty | errorCell?isError;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of a conveyor belt
+sort ConveyorBelt = List(Cell);
+
+map
+    _ConveyorBelt: Int -> List(Cell);  % constructs a new ConveyorBelt
+
+% Moving the conveyor belt
+map
+    moveForward: ConveyorBelt -> ConveyorBelt;
+    moveBackward: ConveyorBelt -> ConveyorBelt;
+    insertFront: ConveyorBelt # WorkPiece -> ConveyorBelt;
+    insertBack: ConveyorBelt # WorkPiece -> ConveyorBelt;
+    removeFront: ConveyorBelt -> ConveyorBelt;
+    removeBack: ConveyorBelt -> ConveyorBelt;
+    pieceAtFront: ConveyorBelt -> Bool; 
+    pieceAtBack: ConveyorBelt -> Bool; 
+    frontCell: ConveyorBelt -> Cell;
+    backCell: ConveyorBelt -> Cell;
+    % convenience mappings
+    move: ConveyorBelt # Direction -> ConveyorBelt;
+    insert: ConveyorBelt # WorkPiece # Direction -> ConveyorBelt;
+    remove: ConveyorBelt # Direction -> ConveyorBelt;
+    pieceAtEntry: ConveyorBelt # Direction -> Bool;
+    pieceAtExit: ConveyorBelt # Direction -> Bool;
+    entryCell: ConveyorBelt # Direction -> Cell;
+    exitCell: ConveyorBelt # Direction -> Cell;
+
+var
+    cb: ConveyorBelt;
+    cbc: Cell;
+    wp: WorkPiece;
+    size: Int;
+    dir: Direction;
+
+
+eqn
+    _ConveyorBelt(size) = if(size <= 0, [], emptyCell |> _ConveyorBelt(size - 1));
+    moveForward(cb) = emptyCell |> rtail(cb); 
+    moveBackward(cb) = tail(cb) <| emptyCell;
+    insertFront(cb, wp) = if(head(cb) == emptyCell, _Cell(wp) |> tail(cb), errorCell |> tail(cb));
+    insertBack(cb, wp) = if(rhead(cb) == emptyCell, rtail(cb) <| _Cell(wp), rtail(cb) <| errorCell);
+    removeFront(cb) = emptyCell |> tail(cb);   
+    removeBack(cb) = rtail(cb) <| emptyCell;
+    pieceAtFront(cb) = head(cb) != emptyCell;
+    pieceAtBack(cb) = rhead(cb) != emptyCell;
+    frontCell(cb) = head(cb);
+    backCell(cb) = rhead(cb);
+    move(cb, dir) = if(isFW(dir), moveForward(cb), moveBackward(cb)); 
+    insert(cb, wp, dir) = if(isFW(dir), insertFront(cb, wp), insertBack(cb, wp)); 
+    remove(cb, dir) = if(isFW(dir), removeBack(cb), removeFront(cb));
+    pieceAtEntry(cb, dir) = if(isFW(dir), pieceAtFront(cb), pieceAtBack(cb));
+    pieceAtExit(cb, dir) = if(isFW(dir), pieceAtBack(cb), pieceAtFront(cb));
+    entryCell(cb, dir) = if(isFW(dir), frontCell(cb), backCell(cb));
+    exitCell(cb, dir) = if(isFW(dir), backCell(cb), frontCell(cb));
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Data definition of a switch
+sort SwitchPosition = struct pos1 | pos2 | pos3; 
+
+sort Switch = struct _Switch(position: SwitchPosition, cell: Cell);
+
+map
+    initSwitch: Switch;  % initially in position 1, unloaded
+
+eqn
+    initSwitch = _Switch(pos1, emptyCell);
+
+map
+    changePosition: Switch # SwitchPosition -> Switch;
+    setContent: Switch # Cell -> Switch;  % sets the content without any checking
+    getContent: Switch -> Cell;  % **Ensure this line is correct**
+    load: Switch # WorkPiece -> Switch;  % sets the content, but checks whether the cell is free
+    unload: Switch -> Switch;
+    canLoad: Switch -> Bool;
+    canUnload: Switch -> Bool;
+
+var
+    sw: Switch;
+    sp: SwitchPosition;
+    cl: Cell;
+    wp: WorkPiece;
+
+eqn
+    changePosition(sw, sp) = _Switch(sp, cell(sw));
+    setContent(sw, cl) = _Switch(position(sw), cl);
+    getContent(sw) = cell(sw);
+    canLoad(sw) = isEmpty(cell(sw));
+    canUnload(sw) = hasWorkPiece(cell(sw));
+    load(sw, wp) = if(canLoad(sw), setContent(sw, _Cell(wp)), setContent(sw, errorCell));
+    unload(sw) = setContent(sw, emptyCell);
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Start of process definitions
+
+% Actions for signalling error situations and global actions
+act
+    error: Error;                    % simple error action
+    error: Error # ID;               % error action with ID
+    error: Error # ID # Connection;  % error action with ID and connection (location)
+    dummyAct;                        % dummy action
+
+% Actions for communications
+act
+    workPieceAt: ID # Connection; % used as a sensor signal indicating that there is a workpiece at a certain position (emitting)
+    detectWorkPieceAt: ID # Connection; % used as a sensor signal indicating that there is a workpiece at a certain position (receiving)
+    detectedWorkPieceAt: ID # Connection; % used as a sensor signal indicating that there is a workpiece at a certain position (communication result)
+
+    load: Connection # WorkPiece; % used for machine to machine communication (=automatic operation) (sending)
+    unload: Connection # WorkPiece; % used for machine to machine communication (=automatic operation) (receiving)
+    transfer: Connection # WorkPiece; % result of a successful machine communication (communication result)
+
+    manualLoad: ID # Connection # WorkPiece; % used for man to machine communication (=manually operated testing)
+    manualUnload: ID # Connection # WorkPiece; % used for man to machine communication (=manually operated testing)
+    manualTransfer: ID # Connection # WorkPiece; % used for man to machine communication (=manually operated testing, communication result)
+
+% Actions for a conveyor belt 
+act
+    move;  % Basic move action without parameters
+    move: ID # Direction;  % Move action with ID and Direction parameters
+
+act 
+    process: WorkstationId;  % First declare the action
+
+act
+    exit;  % Declare exit action
+
+% Processes for a conveyor belt
+proc
+    % Default conveyor belt (convenience init)
+    ConveyorBelt(aas: AAS) =
+        hide({move}, ConveyorBelt_(aas, id(aas), _ConveyorBelt(capacity(aas)))); % get capacity and direction from AAS!
+
+    % Definition of the "internal" conveyor belt
+    ConveyorBelt_(aas: AAS, cbid: ID, cb: ConveyorBelt) = 
+        pieceAtFront(cb) -> workPieceAt(cbid, front(aas)) . ConveyorBelt_() % sensor message, state not changed
+        + pieceAtBack(cb) -> workPieceAt(cbid, back(aas)) . ConveyorBelt_() % sensor message, state not changed
+        + sum wp: WorkPiece. CombinedLoad(cbid, cbEntry(aas), wp)
+            . !pieceAtEntry(cb, direction(aas)) -> ConveyorBelt_(cb = insert(cb, wp, direction(aas))) <> error(ERR_CELL_OVERLOADED, cbid) 
+        + pieceAtExit(cb, direction(aas)) ->
+            CombinedUnload(cbid, cbExit(aas), workpiece(exitCell(cb, direction(aas)))) . ConveyorBelt_(cb = remove(cb, direction(aas)))
+            <> move . !pieceAtExit(cb, direction(aas)) -> ConveyorBelt_(cb = move(cb, direction(aas))) <> error(ERR_WORKPIECE_DROPPED, cbid)  % automatic behaviour
+    ;
+
+    CombinedLoad(cbid: ID, cnx: Connection, wp: WorkPiece) = load(cnx, wp) + manualLoad(cbid, cnx, wp);
+    CombinedUnload(cbid: ID, cnx: Connection, wp: WorkPiece) = unload(cnx, wp) + manualUnload(cbid, cnx, wp);
+
+% Actions for a switch 
+act
+    changePos: ID # SwitchPosition; % internal action
+    changePosReq: ID # SwitchPosition; % external request
+    changePosAck: ID # SwitchPosition; % communication result
+
+% Processes for a switch 
+proc
+    % Default switch (convenience init)
+    Switch(aas: AAS) =    
+        Switch_(aas, id(aas), initSwitch);
+
+    % Position is maintained locally within data structure, but also reflected in AAS!
+    Switch_(aas: AAS, swid: ID, sw: Switch) =
+        canUnload(sw) -> workPieceAt(swid, switchCnx(aas)) . Switch_()  % state not changed
+        + sum pos: SwitchPosition. changePos(swid, pos) .  Switch_(setPosition(aas, pos), swid, changePosition(sw, pos)) % also update position in AAS!
+        + sum wp: WorkPiece. load(switchCnx(aas), wp) . canLoad(sw) -> Switch_(aas, swid, load(sw, wp))
+                                                                                     <> error(ERR_CELL_OVERLOADED, swid, switchCnx(aas))   
+        + (canUnload(sw)) -> unload(switchCnx(aas), workpiece(getContent(sw))) . Switch_(aas, swid, unload(sw))    
+        + (canLoad(sw)) -> sum wp: WorkPiece. manualLoad(swid, switchCnx(aas), wp) .  Switch_(aas, swid, load(sw, wp))  % manual interference
+        + (canUnload(sw)) -> manualUnload(swid, switchCnx(aas), workpiece(getContent(sw))) . Switch_(aas, swid, unload(sw))  % manual interference    
+    ;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Start of process control
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Control process with move actions
+proc Control =
+    manualLoad(icbU, cn32, _wp1)
+    . move(icbU, BACKWARD)        % Move backward
+    . detectWorkPieceAt(icbU, cn25)
+    . changePosReq(iswO, pos3)
+    . detectWorkPieceAt(icbV, cn26)
+    . changePosReq(iswO, pos2)
+    . move(icbV, FORWARD)        % Move forward
+    . detectWorkPieceAt(icbL, cn19)
+    . move(icbL, FORWARD)        % Move forward
+    . changePosReq(iswN, pos2)
+    . detectWorkPieceAt(iswN, cn23)
+    . changePosReq(iswT, pos3)
+    . move(icbQ, FORWARD)        % Move forward
+    . changePosReq(iswT, pos1)
+    . detectWorkPieceAt(iswT, cn14)
+    . changePosReq(iswT, pos3)
+    . move(icbH, FORWARD)        % Move forward
+    . changePosReq(iswF, pos2)
+    . detectWorkPieceAt(iswF, cn07)
+    . changePosReq(iswF, pos3)
+    . move(icbC, BACKWARD)        % Move backward
+    . process(W2)
+    . detectWorkPieceAt(icbB, cn04)
+    . move(icbB, FORWARD)        % Move forward
+    . changePosReq(iswG, pos1)
+    . detectWorkPieceAt(iswG, cn13)
+    . changePosReq(iswG, pos3)
+    . move(icbI, FORWARD)        % Move forward
+    . changePosReq(iswK, pos3)
+    . detectWorkPieceAt(iswK, cn18)
+    . changePosReq(iswK, pos1)
+    . move(icbR, FORWARD)        % Move forward
+    . changePosReq(iswS, pos1)
+    . detectWorkPieceAt(iswS, cn27)
+    . changePosReq(iswS, pos2)
+    . changePosReq(iswO, pos1)
+    . move(icbP, FORWARD)        % Move forward
+    . changePosReq(iswO, pos3)
+    . detectWorkPieceAt(iswO, cn26)
+    . changePosReq(iswO, pos2)
+    . move(icbV, FORWARD)        % Move forward
+    . move(icbL, FORWARD)        % Move forward
+    . changePosReq(iswN, pos2)
+    . detectWorkPieceAt(iswN, cn22)
+    . changePosReq(iswN, pos3)
+    . move(icbM, BACKWARD)      % Move backward
+    . process(W4)
+    . detectWorkPieceAt(icbR, cn29)
+    . move(icbR, FORWARD)        % Move forward
+    . changePosReq(iswS, pos3)
+    . detectWorkPieceAt(iswS, cn31)
+    . changePosReq(iswS, pos2)
+    . move(ocbW, BACKWARD)      % Move backward
+    . changePosReq(oswS, pos2)
+    . detectWorkPieceAt(oswS, cn38)
+    . changePosReq(oswS, pos1)
+    . move(ocbP, FORWARD)        % Move forward
+    . changePosReq(oswR, pos2)
+    . detectWorkPieceAt(oswR, cn40)
+    . changePosReq(oswR, pos1)
+    . move(ocbO, FORWARD)        % Move forward
+    . process(W3)
+    . detectWorkPieceAt(icbR, cn47)
+    . move(icbR, FORWARD)        % Move forward
+    . changePosReq(iswS, pos3)
+    . detectWorkPieceAt(iswS, cn31)
+    . changePosReq(iswS, pos2)
+    . move(ocbW, BACKWARD)      % Move backward
+    . changePosReq(oswS, pos3)
+    . detectWorkPieceAt(oswS, cn34)
+    . move(ocbT, BACKWARD)      % Move backward
+    . changePosReq(oswQ, pos1)
+    . detectWorkPieceAt(oswQ, cn36)
+    . changePosReq(oswQ, pos2)
+    . move(ocbV, FORWARD)        % Move forward
+    . manualUnload(ocbV, cn37, _wp1)
+    . exit;
+
+
+
+
+% -----------------------------------------------------------------------------------------------------------------------
+% System definition
+proc
+    System_ =
+        % Conveyor Belts
+        ConveyorBelt(aas'(icbU)) ||
+        ConveyorBelt(aas'(icbV)) ||
+        ConveyorBelt(aas'(icbL)) ||
+        ConveyorBelt(aas'(icbQ)) ||
+        ConveyorBelt(aas'(icbH)) ||
+        ConveyorBelt(aas'(icbC)) ||
+        ConveyorBelt(aas'(icbB)) ||
+        ConveyorBelt(aas'(icbI)) ||
+        ConveyorBelt(aas'(icbR)) ||
+        ConveyorBelt(aas'(ocbP)) ||
+        ConveyorBelt(aas'(icbM)) ||
+        ConveyorBelt(aas'(ocbW)) ||
+        ConveyorBelt(aas'(ocbT)) ||
+		ConveyorBelt(aas'(ocbV)) ||
+		ConveyorBelt(aas'(ocbO)) ||
+
+        % Switches
+        Switch(aas'(iswO)) ||
+        Switch(aas'(iswN)) ||
+        Switch(aas'(iswT)) ||
+        Switch(aas'(iswF)) ||
+        Switch(aas'(iswG)) ||
+        Switch(aas'(iswK)) ||
+        Switch(aas'(iswS)) ||
+        Switch(aas'(oswQ)) ||
+		Switch(aas'(oswS)) ||
+        Switch(aas'(oswR));
+
+    System =
+        hide({
+            transfer, % result of communication
+            dummyAct % sentinel
+        },
+        allow({
+            error, % error action must be visible!
+            manualLoad, % manual actions are allowed
+            manualUnload, % manual actions are allowed
+            workPieceAt, % sensor info
+            transfer, % result of communication
+            changePos, % switch actions
+			move  % Allow move action
+        },
+        comm({
+            unload | load -> transfer, % automatic system internal transfer of workpieces
+            dummyAct | dummyAct -> dummyAct % sentinel
+        },
+            System_            
+        )))
+    ;
+
+    ControlledSystem =
+        hide({
+            dummyAct % sentinel
+        },
+        allow({
+            error, % error action must be visible!
+            manualTransfer, % manual actions are allowed
+            detectedWorkPieceAt, % sensor communication
+            changePosAck, % switch actions
+            dummyAct, % sentinel
+			move  % Allow move action
+
+        },
+        comm({
+            workPieceAt | detectWorkPieceAt -> detectedWorkPieceAt,
+            manualLoad | manualLoad -> manualTransfer,
+            manualUnload | manualUnload -> manualTransfer,
+            changePos | changePosReq -> changePosAck,            
+            dummyAct | dummyAct -> dummyAct % sentinel
+        },
+            Control || System            
+        )))
+    ;
+
+% -----------------------------------------------------------------------------------------------------------------------
+% Initialize the system
+init
+    Control;
